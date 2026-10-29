@@ -1,0 +1,327 @@
+<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta name="ms-sp-authoring-source" content="agent"><title>Announcements</title></head><body><style>.announcements{font-family:"Segoe UI",Arial,sans-serif;color:#242424}.announcement-grid{display:grid;gap:8px}.card{position:relative;padding:12px 42px 12px 14px;border-radius:8px;line-height:1.4}.card.high{background:#FDE7E9}.card.normal{background:#DEECF9}.card.low{background:#DFF6DD}.card h2{font-size:16px;margin:0 0 2px;font-weight:600}.card p{font-size:14px;margin:0}.more{position:absolute;right:10px;top:10px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:50%;text-decoration:none;font-weight:700}.high .more{color:#A80000;background:#fff}.normal .more{color:#005A9E;background:#fff}.low .more{color:#107C10;background:#fff}.msg{padding:12px 14px;border-radius:8px;background:#f5f5f5;color:#616161;font-size:14px}</style><script type="application/json" class="ka-livedata-manifest">[{"kind":"list","spItemUrl":"list:https://solusindocorp.sharepoint.com/sites/SolusiCopilotExperienceHub/47398c15-e330-4879-b97b-6c832cb97c7d","webUrl":"https://solusindocorp.sharepoint.com/sites/SolusiCopilotExperienceHub","listId":"47398c15-e330-4879-b97b-6c832cb97c7d","label":"Announcement"}]</script><div class="ld-fragment" id="ld-fragment-o6vqt21" style="margin:16px 0"><div class="ld-status-row" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:8px 0"><div class="ld-status" id="ld-status-o6vqt21" style="font:14px 'Segoe UI',sans-serif;color:#605e5c"></div><button type="button" class="ld-refresh" id="ld-refresh-o6vqt21" title="Re-fetch the source files" style="border:1px solid #d1d1d1;background:#fff;color:#323130;font:13px 'Segoe UI',sans-serif;padding:4px 10px;border-radius:4px;cursor:pointer">&#x21BB; Refresh</button></div><h3 style="font:600 16px/1.4 'Segoe UI',sans-serif;margin:0 0 8px;color:#323130">Pengumuman</h3><div class="announcements"><div id="ld-content-o6vqt21"><p class="msg">Memuat pengumuman…</p></div></div></div><script>(function(){var _nonce = "o6vqt21";var CONFIG = {"items":[{"kind":"list","spItemUrl":"list:https://solusindocorp.sharepoint.com/sites/SolusiCopilotExperienceHub/47398c15-e330-4879-b97b-6c832cb97c7d","webUrl":"https://solusindocorp.sharepoint.com/sites/SolusiCopilotExperienceHub","listId":"47398c15-e330-4879-b97b-6c832cb97c7d","label":"Announcement"}],"title":"Pengumuman"};
+function splitLine(line, sep) {
+  var result = [],
+    cur = '',
+    inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQ = !inQ;
+      }
+    } else if (ch === sep && !inQ) {
+      result.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+function _parseDelimited(content) {
+  var lines = content
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter(function (l) {
+      return l.trim();
+    });
+  if (lines.length < 2) return { headers: [], rows: [] };
+  var sep = lines[0].indexOf('\t') !== -1 ? '\t' : ',';
+  var headers = splitLine(lines[0], sep).map(function (h) {
+    return h.trim();
+  });
+  var rows = [];
+  for (var i = 1; i < lines.length; i++) {
+    var cols = splitLine(lines[i], sep);
+    var row = {};
+    for (var j = 0; j < headers.length; j++) {
+      row[headers[j]] = (cols[j] || '').trim();
+    }
+    rows.push(row);
+  }
+  return { headers: headers, rows: rows };
+}
+// Pull all <sheet name="X">CSV...</sheet> blocks out of cat_file-style content.
+// Returns [] when the input doesn't contain any sheet tags.
+function extractSheets(content) {
+  var sheets = [];
+  var re = /<sheet name="([^"]*)">([\s\S]*?)<\/sheet>/g;
+  var m;
+  while ((m = re.exec(content)) !== null) {
+    sheets.push({ name: m[1], csv: m[2] });
+  }
+  return sheets;
+}
+// One sheet's parsed rows by NAME, or null when absent. Matching is exact but
+// whitespace- and case-insensitive.
+//
+// Exists because building the lookup by hand is a trap: the obvious
+// new RegExp('<sheet name="' + name + '">...') breaks on any sheet whose name
+// contains a regex metacharacter, and workbook tabs are full of them. A real
+// page shipped broken because 'OD+DL' made the 'D+' a quantifier, so the sheet
+// never matched, and the render() threw on the empty result. Comparing strings
+// sidesteps the whole class.
+function sheetByName(content, name) {
+  var want = String(name == null ? '' : name)
+    .trim()
+    .toLowerCase();
+  var sheets = extractSheets(content);
+  for (var i = 0; i < sheets.length; i++) {
+    if (String(sheets[i].name).trim().toLowerCase() === want) {
+      return _parseDelimited(sheets[i].csv);
+    }
+  }
+  return null;
+}
+// Normalize a fetched result into { headers, rows } regardless of host format.
+// Excel: parses the first sheet. For multi-sheet flows, use LiveData.html
+// and call extractSheets(result.content) yourself.
+function loadTabular(result) {
+  if (!result || result.content == null) return null;
+  if (result.format === 'rows') {
+    // SharePoint-list live data: content is JSON { headers:[], rows:[[]] } the
+    // host already flattened (no CSV serialize/re-parse, so multi-line text
+    // fields survive). Re-key each row array into a header-keyed object so the
+    // pre-built renderers (which read row[col]) consume it unchanged.
+    var listData;
+    try {
+      listData = JSON.parse(result.content);
+    } catch (e) {
+      return null;
+    }
+    if (!listData || !listData.headers) return null;
+    var headers = listData.headers;
+    var rawRows = listData.rows || [];
+    // Rows may arrive as POSITIONAL arrays (raw host shape) OR as already
+    // header-keyed OBJECTS (content re-serialized by the list-enrichment step,
+    // or a second loadTabular call on that rewritten content). Detect the shape
+    // per row so re-keying an already-keyed object doesn't null every field.
+    var keyedRows = [];
+    for (var rowIdx = 0; rowIdx < rawRows.length; rowIdx++) {
+      var cellValues = rawRows[rowIdx];
+      if (cellValues && typeof cellValues === 'object' && !(cellValues instanceof Array)) {
+        keyedRows.push(cellValues);
+        continue;
+      }
+      var keyedRow = {};
+      for (var colIdx = 0; colIdx < headers.length; colIdx++) {
+        keyedRow[headers[colIdx]] = cellValues && cellValues[colIdx] != null ? cellValues[colIdx] : '';
+      }
+      keyedRows.push(keyedRow);
+    }
+    return { headers: headers, rows: keyedRows };
+  }
+  if (result.format === 'xlsx-sheets') {
+    var sheets = extractSheets(result.content);
+    if (sheets.length === 0) return null;
+    return _parseDelimited(sheets[0].csv);
+  }
+  // 'csv' and 'text' — both arrive as raw text. _parseDelimited handles both
+  // comma- and tab-separated content via header sniffing.
+  return _parseDelimited(result.content);
+}
+// Normalize a field name for tolerant matching: lowercase it, decode SharePoint
+// field-name escapes — both the standard _xHHHH_ form (e.g. _x0020_ = space)
+// and the _0xHH_ form some lists emit (e.g. _0x5F_ = underscore) — then drop
+// spaces and underscores. This lets a DISPLAY name ("Deal Value", "math_score")
+// resolve against the INTERNAL header the list fetch injects ("Deal_x0020_Value",
+// "math_0x5F_score" or "DealValue") and vice versa — the recurring "all blank /
+// $0" bug when a script looked up a list column by its display name.
+function _normHeader(s) {
+  return ('' + s).toLowerCase()
+    .replace(/_x([0-9a-f]{4})_/g, function(_m, h) { return String.fromCharCode(parseInt(h, 16)); })
+    .replace(/_0x([0-9a-f]+)_/g, function(_m, h) { return String.fromCharCode(parseInt(h, 16)); })
+    .replace(/[\s_]+/g, '');
+}
+function findCol(headers, name) {
+  // Returns the matched header NAME (string) or null. The shape change from
+  // "index or -1" was deliberate: rows are header-keyed objects (see
+  // _parseDelimited), so the natural way to use the result is as a row key:
+  //   var monthCol = findCol(headers, 'Month');
+  //   row[monthCol]               // works directly
+  //   row[t.headers[monthCol]]    // would NOT work — that's the old pattern
+  // Matching is tolerant (case-, space-, underscore- and _xHHHH_/_0xHH_-escape
+  // insensitive) so a display name resolves against a list's internal header
+  // and vice versa.
+  if (!name) return null;
+  var target = _normHeader(name);
+  if (!target) return null;
+  var i;
+  for (i = 0; i < headers.length; i++) {
+    if (_normHeader(headers[i]) === target) return headers[i];
+  }
+  for (i = 0; i < headers.length; i++) {
+    if (_normHeader(headers[i]).indexOf(target) !== -1) return headers[i];
+  }
+  return null;
+};
+
+function render(results){var r=results&&results[0];if(!r||r.error)return '<p class="msg">Pengumuman tidak dapat dimuat.</p>';var H=Array.isArray(r.headers)?r.headers:[],rows=Array.isArray(r.rows)?r.rows:[];var title=findCol(H,'Title'),desc=findCol(H,'Description'),priority=findCol(H,'Priority'),info=findCol(H,'Info_x0020_Lebih_x0020_Lanjut');if(!title||!desc||!priority||!info)return '<p class="msg">Kolom pengumuman yang diperlukan tidak ditemukan.</p>';if(!rows.length)return '<p class="msg">Tidak ada pengumuman saat ini.</p>';function rank(v){var m=String(v==null?'':v).match(/^\s*(\d+)/);return m?parseInt(m[1],10):99;}function kind(v){var n=rank(v);return n===1?'high':n===2?'normal':'low';}var a=rows.slice().sort(function(x,y){return rank(x[priority])-rank(y[priority]);});return '<div class="announcement-grid">'+a.map(function(row){var p=row[priority],u=String(row[info]||'').trim(),link=u?'<a class="more" href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" aria-label="Buka informasi selengkapnya">↗</a>':'';return '<article class="card '+kind(p)+'">'+link+'<h2>'+esc(row[title]||'')+'</h2><p>'+esc(row[desc]||'')+'</p></article>';}).join('')+'</div>';}
+var statusEl = document.getElementById('ld-status-' + _nonce);
+var refreshBtn = document.getElementById('ld-refresh-' + _nonce);
+function setStatus(msg, isErr) {
+  if (!statusEl) return;
+  statusEl.textContent = msg;
+  statusEl.style.color = isErr ? '#a4262c' : '#605e5c';
+}
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function formatNum(n) {
+  var a = Math.abs(n);
+  if (a >= 1e12) return (n / 1e12).toFixed(1) + 'T';
+  if (a >= 1e9)  return (n / 1e9).toFixed(1) + 'B';
+  if (a >= 1e6)  return (n / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3)  return (n / 1e3).toFixed(1) + 'K';
+  return n % 1 === 0 ? String(n) : n.toFixed(2);
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+var CHART_COLORS = ['#0078d4','#107c10','#d83b01','#8764b8','#038387','#ca5010','#006f94','#c43e1c','#00b294','#4f6bed'];
+
+var _items = CONFIG.items || (CONFIG.item ? [CONFIG.item] : []);
+
+function _itemLabel(it) {
+  return it.label || it.fileName || it.filePath || it.spItemUrl || '';
+}
+
+// Refresh sends a postMessage to OneUp requesting full iframe reload (which
+// re-runs the host-side prefetch and re-injects __LD_RESULTS__). Exposed in
+// IIFE scope to user-written render() functions, AND on window so inline
+// onclick="refresh()" attributes in body HTML can resolve it — those run in
+// global scope after the security layer rewrites them, so without window.
+// exposure the default refresh button is the only path that works.
+function refresh() {
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '&#x21BB; Refreshing...';
+  }
+  setStatus('Refreshing...');
+  window.parent.postMessage({ type: 'ka-html-viewer-refresh' }, '*');
+}
+window.refresh = refresh;
+if (refreshBtn) {
+  refreshBtn.addEventListener('click', function() {
+    if (refreshBtn.disabled) return;
+    refresh();
+  });
+}
+
+// Build _results from window.__LD_RESULTS__ (host-injected prefetch payload).
+// Items missing from the global yield a no-results error rather than a
+// silent missing entry, so render() functions see the full _items shape.
+var _resultsGlobal = window.__LD_RESULTS__ || {};
+var _results = [];
+for (var _ri = 0; _ri < _items.length; _ri++) {
+  var _spUrl = _items[_ri].spItemUrl;
+  var _data = _resultsGlobal[_spUrl];
+  if (_data) {
+    var _res = {
+      label: _itemLabel(_items[_ri]),
+      content: _data.content == null ? null : _data.content,
+      format: _data.format || null,
+      metadata: _data.metadata || null,
+      error: _data.error || null,
+      errorCode: _data.errorCode || null
+    };
+    // For a SharePoint LIST (format 'rows') the host content is JSON whose
+    // rows are POSITIONAL arrays. Pre-normalize into header-keyed objects so a
+    // custom render() that reaches for _res.rows / _res.headers gets usable
+    // data instead of positional arrays — the deterministic fix for the
+    // recurring "Unspecified / $0" bug when a script reads row[field] off a
+    // positional array. Scoped to lists ONLY: file/text/xlsx results keep their
+    // raw content so a renderer picks the right parser (loadTabular for the
+    // first sheet, extractSheets for multi-sheet, JSON.parse for .json, etc.).
+    if (_res.format === 'rows' && _res.content != null) {
+      var _tab = loadTabular(_res);
+      if (_tab) {
+        _res.headers = _tab.headers;
+        _res.rows = _tab.rows;
+        // ALSO re-serialize content so a render() that hand-parses
+        // JSON.parse(_res.content).rows gets the SAME header-keyed objects
+        // (not positional arrays). Many model-authored renderers reach for
+        // _res.content directly instead of _res.rows; without this they read
+        // row[field] off a positional array and every field is undefined ->
+        // blank / $0. Rewriting content makes the positional-array trap
+        // structurally impossible regardless of which shape the script reads.
+        try {
+          _res.content = JSON.stringify({ headers: _tab.headers, rows: _tab.rows });
+        } catch (_e) { /* leave original content on stringify failure */ }
+      }
+    }
+    _results.push(_res);
+  } else {
+    _results.push({
+      label: _itemLabel(_items[_ri]),
+      content: null,
+      format: null,
+      metadata: null,
+      error: 'No prefetched result for ' + _spUrl,
+      errorCode: 'no-results'
+    });
+  }
+}
+
+// Render
+setStatus('Rendering...');
+try {
+  var hasData = false, firstErr = null;
+  for (var _ci = 0; _ci < _results.length; _ci++) {
+    if (_results[_ci].content != null) { hasData = true; break; }
+    if (_results[_ci].error && !firstErr) firstErr = _results[_ci].error;
+  }
+  if (!hasData) {
+    setStatus('Failed to load data: ' + (firstErr || 'no content'), true);
+  } else {
+    var _rendered = render(_results);
+    // A custom render() may EITHER inject into its ld-content container itself
+    // (returning nothing) OR return an HTML string. When it returns a string,
+    // replace the container contents so any loading placeholder the body seeded
+    // inside ld-content (per the authoring guidance) is overwritten rather than
+    // left stuck. A self-injecting render() returns undefined, so this branch is
+    // skipped and its own output is preserved. Embedded script elements do not
+    // run when set via innerHTML, so re-create them to execute (e.g. pagination).
+    if (typeof _rendered === 'string' && _rendered) {
+      var _defaultContainer = document.getElementById('ld-content-' + _nonce);
+      if (_defaultContainer) {
+        _defaultContainer.innerHTML = _rendered;
+        var _liveScripts = _defaultContainer.getElementsByTagName('script');
+        var _scriptNodes = [];
+        for (var _si = 0; _si < _liveScripts.length; _si++) {
+          _scriptNodes.push(_liveScripts[_si]);
+        }
+        for (var _sj = 0; _sj < _scriptNodes.length; _sj++) {
+          var _oldScript = _scriptNodes[_sj];
+          var _newScript = document.createElement('script');
+          if (_oldScript.type) { _newScript.type = _oldScript.type; }
+          _newScript.text = _oldScript.textContent || '';
+          _oldScript.parentNode.replaceChild(_newScript, _oldScript);
+        }
+      }
+    }
+    var _now = new Date();
+    var _hh = ('0' + _now.getHours()).slice(-2);
+    var _mm = ('0' + _now.getMinutes()).slice(-2);
+    var _ss = ('0' + _now.getSeconds()).slice(-2);
+    setStatus('Loaded ' + _hh + ':' + _mm + ':' + _ss);
+  }
+} catch(e) {
+  setStatus('Render error: ' + (e && e.message ? e.message : String(e)), true);
+}
+if (refreshBtn) {
+  refreshBtn.disabled = false;
+  refreshBtn.innerHTML = '&#x21BB; Refresh';
+}
+})();</script></body></html>
