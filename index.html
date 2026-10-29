@@ -172,28 +172,21 @@ function render(results){
   var r=results&&results[0];
   if(!r||r.error)return '<p class="msg">Pengumuman tidak dapat dimuat.</p>';
   var H=Array.isArray(r.headers)?r.headers:[],rows=Array.isArray(r.rows)?r.rows:[];
-  var title=findCol(H,'Title'),desc=findCol(H,'Description'),priority=findCol(H,'Priority'),info=findCol(H,'Info_x0020_Lebih_x0020_Lanjut');
-  if(!title||!desc||!priority||!info)return '<p class="msg">Kolom pengumuman yang diperlukan tidak ditemukan.</p>';
-  if(!rows.length)return '<p class="msg">Tidak ada pengumuman saat ini.</p>';
+  var title=findCol(H,'Title'),desc=findCol(H,'Description'),priority=findCol(H,'Priority'),info=findCol(H,'Info_x0020_Lebih_x0020_Lanjut'),created=findCol(H,'Created');
+  if(!title||!desc||!priority||!info||!created)return '<p class="msg">Kolom pengumuman yang diperlukan tidak ditemukan.</p>';
+  var cutoff=new Date();cutoff.setHours(0,0,0,0);cutoff.setDate(cutoff.getDate()-14);
+  rows=rows.filter(function(row){var d=new Date(row[created]);return !isNaN(d)&&d>=cutoff;}).sort(function(x,y){return rank(x[priority])-rank(y[priority])||(new Date(y[created])-new Date(x[created]));}).slice(0,5);
+  if(!rows.length)return '<p class="msg">Tidak ada pengumuman dalam 14 hari terakhir.</p>';
   function rank(v){var m=String(v==null?'':v).match(/^\s*(\d+)/);return m?parseInt(m[1],10):99;}
   function kind(v){var n=rank(v);return n===1?'high':n===2?'normal':'low';}
-  var a=rows.slice().sort(function(x,y){return rank(x[priority])-rank(y[priority]);});
-  var cards=a.map(function(row){
-    var p=row[priority],u=String(row[info]||'').trim(),
-    link=u?'<a class="more" href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" aria-label="Buka informasi selengkapnya">↗</a>':'';
+  var cards=rows.map(function(row){
+    var p=row[priority],u=String(row[info]||'').trim(),link=u?'<a class="more" href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" aria-label="Buka informasi selengkapnya">↗</a>':'';
     return '<article class="card '+kind(p)+'">'+link+'<h2>'+esc(row[title]||'')+'</h2><p>'+esc(row[desc]||'')+'</p></article>';
   }).join('');
-  var dots='';
-  for(var i=0;i<a.length;i++){dots+='<button type="button" class="dot" aria-label="Pengumuman '+(i+1)+'"></button>';}
+  var dots='';for(var i=0;i<rows.length;i++){dots+='<button type="button" class="dot" aria-label="Pengumuman '+(i+1)+'"></button>';}
   var box=document.getElementById('ld-content-'+_nonce);
-  box.innerHTML='<div class="carousel" tabindex="-1"><div class="slides">'+cards+'</div>'
-    +'<div class="controls"'+(a.length<2?' hidden':'')+'>'
-    +'<button type="button" class="ctl" data-a="prev" aria-label="Sebelumnya" title="Sebelumnya">&#8249;</button>'
-    +'<div class="dots">'+dots+'</div>'
-    +'<button type="button" class="ctl" data-a="next" aria-label="Berikutnya" title="Berikutnya">&#8250;</button>'
-    +'<button type="button" class="ctl" data-a="pp" aria-label="Jeda" title="Jeda">&#10074;&#10074;</button>'
-    +'</div></div>';
-  initCarousel(box.querySelector('.carousel'),a.length);
+  box.innerHTML='<div class="carousel" tabindex="-1"><div class="slides">'+cards+'</div><div class="controls"'+(rows.length<2?' hidden':'')+'><button type="button" class="ctl" data-a="prev" aria-label="Sebelumnya" title="Sebelumnya">&#8249;</button><div class="dots">'+dots+'</div><button type="button" class="ctl" data-a="next" aria-label="Berikutnya" title="Berikutnya">&#8250;</button><button type="button" class="ctl" data-a="pp" aria-label="Jeda" title="Jeda">&#10074;&#10074;</button></div></div>';
+  initCarousel(box.querySelector('.carousel'),rows.length);
 }
 var statusEl = document.getElementById('ld-status-' + _nonce);
 var refreshBtn = document.getElementById('ld-refresh-' + _nonce);
